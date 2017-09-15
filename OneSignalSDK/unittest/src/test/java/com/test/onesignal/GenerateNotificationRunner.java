@@ -29,6 +29,7 @@ package com.test.onesignal;
 
 import android.app.Activity;
 import android.app.AlarmManager;
+import android.app.AlertDialog;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -42,6 +43,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.support.v4.app.NotificationCompat;
+import android.widget.Button;
 
 import com.onesignal.BuildConfig;
 import com.onesignal.BundleCompat;
@@ -82,6 +84,7 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.Shadows;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowAlertDialog;
 import org.robolectric.shadows.ShadowLog;
 import org.robolectric.shadows.ShadowSystemClock;
 import org.robolectric.android.controller.ActivityController;
@@ -381,6 +384,27 @@ public class GenerateNotificationRunner {
       Bundle bundle = getBaseNotifBundle();
       NotificationBundleProcessor_ProcessFromGCMIntentService(blankActivity, bundle, null);
       Assert.assertEquals(0, ShadowBadgeCountUpdater.lastCount);
+   }
+   
+   @Test
+   public void shouldNotShowNotificationWhenAlertIsBlankOrNull() throws Exception {
+      Bundle bundle = getBaseNotifBundle();
+      bundle.remove("alert");
+      NotificationBundleProcessor_ProcessFromGCMIntentService(blankActivity, bundle, null);
+   
+      assertNoNotifications();
+   
+      bundle = getBaseNotifBundle("UUID2");
+      bundle.putString("alert", "");
+      NotificationBundleProcessor_ProcessFromGCMIntentService(blankActivity, bundle, null);
+   
+      assertNoNotifications();
+   
+      // Should have 2 DB record
+      SQLiteDatabase readableDb = OneSignalDbHelper.getInstance(blankActivity).getReadableDatabase();
+      Cursor cursor = readableDb.query(NotificationTable.TABLE_NAME, new String[] { "created_time" }, null, null, null, null, null);
+      Assert.assertEquals(2, cursor.getCount());
+      cursor.close();
    }
    
    @Test
@@ -684,6 +708,21 @@ public class GenerateNotificationRunner {
       String json_data = shadowOf(lastNotification.notif.actions[0].actionIntent).getSavedIntent().getStringExtra("onesignal_data");
       Assert.assertEquals("id1", new JSONObject(json_data).optString("actionSelected"));
    }
+
+
+   @Test
+   public void shouldAddDefaultButtonToAlertDialog() throws Exception {
+      OneSignal.setInFocusDisplaying(OneSignal.OSInFocusDisplayOption.InAppAlert);
+      OneSignal.startInit(blankActivity).init();
+      threadAndTaskWait();
+
+      Bundle bundle = getBaseNotifBundle();
+      NotificationBundleProcessor_ProcessFromGCMIntentService(blankActivity, bundle, null);
+
+      AlertDialog alert = ShadowAlertDialog.getLatestAlertDialog();
+      Button button = alert.getButton(AlertDialog.BUTTON_NEUTRAL);
+      Assert.assertEquals(button.getText(), "Ok");
+   }
    
    @Test
    @Config(shadows = {ShadowGcmBroadcastReceiver.class})
@@ -917,6 +956,13 @@ public class GenerateNotificationRunner {
       Assert.assertTrue(ShadowOneSignal.messages.contains("onNotificationProcessing throw an exception"));
       Map<Integer, PostedNotification> postedNotifs = ShadowRoboNotificationManager.notifications;
       Assert.assertEquals(3, postedNotifs.size());
+   }
+   
+   
+   /* Helpers */
+   
+   private static void assertNoNotifications() {
+      Assert.assertEquals(0, ShadowRoboNotificationManager.notifications.size());
    }
 
    private static Bundle getBundleWithAllOptionsSet() {
